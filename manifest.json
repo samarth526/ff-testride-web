@@ -1,0 +1,10 @@
+{
+  "name": "Flying Flea Test Ride",
+  "short_name": "FF Test Ride",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0d0e",
+  "theme_color": "#0b0d0e"
+}
