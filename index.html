@@ -429,13 +429,18 @@ canvas#sig { width: 100%; height: 190px; background: #F6F7F8; border-radius: 12p
       <div class="sec-head">
         <div class="step">Step 01</div>
         <h2 class="sec-title display">Who Rode</h2>
-        <p class="sec-sub">Enter the rider number you were shown at registration</p>
+        <p class="sec-sub">Enter your phone number and we will pull up your ride</p>
       </div>
       <div id="findBlock">
-        <label for="riderNoInput">Rider number</label>
-        <input type="text" id="riderNoInput" autocapitalize="characters" placeholder="e.g. 2-014" maxlength="10">
+        <label for="fbPhoneInput">Phone number</label>
+        <input type="text" id="fbPhoneInput" inputmode="numeric" maxlength="10" placeholder="10 digits" autocomplete="off">
+        <div class="sec-sub" id="whoStatus" style="margin-top:8px;"></div>
+        <div id="foundCard" class="hidden" style="margin-top:12px;display:flex;align-items:center;gap:12px;background:rgba(58,198,190,0.07);border:1px solid rgba(58,198,190,0.55);border-radius:12px;padding:14px 16px;">
+          <div id="foundName" style="font-size:18px;font-weight:600;"></div>
+          <button type="button" class="linkbtn" id="notMe" style="margin-left:auto;">Not you?</button>
+        </div>
         <div class="linkrow">
-          <button type="button" class="linkbtn" id="showManual">I don't know my rider number</button>
+          <button type="button" class="linkbtn" id="showManual">Enter details manually</button>
         </div>
         <div id="manualBox" class="hidden">
           <div class="grid2">
@@ -887,10 +892,37 @@ $('viewReg').addEventListener('submit', function (e) {
   });
 });
 
-/* ---------- PAGE 2: who rode (rider number) ---------- */
-var matchedVia = '';
+/* ---------- PAGE 2: who rode (automatic lookup by phone) ---------- */
+var matchedVia = '', foundRider = null;
+function clearFound() { foundRider = null; $('foundCard').classList.add('hidden'); }
+function lookupRider() {
+  var p = $('fbPhoneInput').value.replace(/\D/g, '');
+  setErr('whoErr', ''); clearFound();
+  if (p.length !== 10) return;
+  $('whoStatus').textContent = 'Finding you\u2026';
+  gsRun('findRider', p).then(function (res) {
+    $('whoStatus').textContent = '';
+    if (res && res.riderNo) {
+      foundRider = { riderNo: String(res.riderNo), name: String(res.name || ''), phone: p, email: '' };
+      matchedVia = 'phone-auto';
+      $('foundName').textContent = (foundRider.name || 'Rider') + ' \u00b7 Rider ' + foundRider.riderNo;
+      $('foundCard').classList.remove('hidden'); $('manualBox').classList.add('hidden');
+    } else {
+      $('manualBox').classList.remove('hidden'); $('mPhone').value = p;
+      setErr('whoErr', 'That number is not in today\u2019s registrations. Add your name and continue.');
+    }
+  }).catch(function () {
+    $('whoStatus').textContent = '';
+    $('manualBox').classList.remove('hidden'); $('mPhone').value = p;
+    setErr('whoErr', 'Could not check right now. Add your name and continue; we will match you later.');
+  });
+}
+$('fbPhoneInput').addEventListener('input', function () {
+  var p = this.value.replace(/\D/g, ''); if (this.value !== p) this.value = p;
+  if (p.length === 10) lookupRider(); else { clearFound(); setErr('whoErr', ''); }
+});
+$('notMe').addEventListener('click', function () { clearFound(); $('fbPhoneInput').value = ''; $('fbPhoneInput').focus(); });
 $('showManual').addEventListener('click', function () { $('manualBox').classList.toggle('hidden'); setErr('whoErr', ''); });
-$('riderNoInput').addEventListener('input', function () { setErr('whoErr', ''); });
 
 /* ---------- PAGE 2: interest ---------- */
 var buy = '', when = '', reasons = [], standout = [], off = [], rideToday = '', recommend = '';
@@ -945,16 +977,15 @@ $('viewFb').addEventListener('submit', function (e) {
   var ok = true; setErr('whoErr', ''); setErr('buyErr', '');
   ['rateErr', 'rateKnobErr', 'rateModesErr', 'rateOverallErr'].forEach(function (i) { setErr(i, ''); });
   var loc = currentLocation(), who = null;
-  var rn = $('riderNoInput').value.trim().toUpperCase().replace(/\s+/g, '');
   var manualOpen = !$('manualBox').classList.contains('hidden');
-  if (manualOpen) {
+  if (foundRider) {
+    who = foundRider;
+  } else if (manualOpen) {
     var mn = $('mName').value.trim(), mp = $('mPhone').value.replace(/\D/g, '');
-    if (mn.length >= 2 && /^[6-9]\d{9}$/.test(mp)) { who = { riderNo: rn, name: mn, phone: mp, email: '' }; matchedVia = 'manual'; }
+    if (mn.length >= 2 && /^[6-9]\d{9}$/.test(mp)) { who = { riderNo: '', name: mn, phone: mp, email: '' }; matchedVia = 'manual'; }
     else { setErr('whoErr', 'Enter your name and 10-digit phone number'); ok = false; }
-  } else if (/^\d{1,3}-\d{1,4}$/.test(rn)) {
-    who = { riderNo: rn, name: '', phone: '', email: '' }; matchedVia = 'rider-no';
   } else {
-    setErr('whoErr', 'Enter your rider number as shown at registration, like 2-014. No number? Tap the link below.'); ok = false;
+    setErr('whoErr', 'Enter your 10-digit phone number'); ok = false;
   }
   if (!buy) { setErr('buyErr', 'Tap Yes or No'); ok = false; }
   if (!ratings.ride) { setErr('rateErr', 'Tap a lamp to rate the ride'); ok = false; }
@@ -974,7 +1005,7 @@ $('viewFb').addEventListener('submit', function (e) {
   fbQ.push(entry);
   showOverlay('Feedback Submitted', '', CFG.thanksFb, 4, function () {
     $('viewFb').reset();
-    matchedVia = ''; buy = ''; when = ''; reasons.length = 0; standout.length = 0; off.length = 0; rideToday = ''; recommend = '';
+    matchedVia = ''; clearFound(); $('whoStatus').textContent = ''; buy = ''; when = ''; reasons.length = 0; standout.length = 0; off.length = 0; rideToday = ''; recommend = '';
     ratings = { ride: 0, knob: 0, modes: 0, overall: 0 }; selectedColor = 'Flea Green'; applyColor();
     $('rideTodayModelWrap').classList.add('hidden');
     document.querySelectorAll('.rate-btn').forEach(function (x) { x.classList.remove('lit'); });
