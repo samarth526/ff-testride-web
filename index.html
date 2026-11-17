@@ -336,7 +336,7 @@ canvas#sig { width: 100%; height: 190px; background: #F6F7F8; border-radius: 12p
       <div style="flex:1;min-width:260px;">
         <div class="step">This iPad</div>
         <div class="loc-locked" id="homeVenue" style="display:inline-block;"></div>
-        <label for="venueSelect" style="margin-top:14px;">Venue <span style="color:var(--muted);letter-spacing:0;text-transform:none;font-weight:400;">(changing it moves every iPad)</span></label>
+        <label for="venueSelect" style="margin-top:14px;">Venue <span style="color:var(--muted);letter-spacing:0;text-transform:none;font-weight:400;">(this iPad only)</span></label>
         <select id="venueSelect" style="max-width:360px;"></select>
       </div>
     </div>
@@ -658,7 +658,7 @@ document.querySelectorAll('.rating').forEach(function (row) {
 });
 
 /* ---------- device identity: venue from the Sheet, iPad number self-assigned ---------- */
-var VENUE = CFG.lockedLocation || CFG.currentVenue || '';
+var VENUE = CFG.lockedLocation || lsGet('fftr_venue', '') || CFG.currentVenue || '';
 TAB = String(lsGet('fftr_tab', '') || '');
 var DEVICE_ID = lsGet('fftr_device_id', '');
 if (!DEVICE_ID) { DEVICE_ID = uid(); lsSet('fftr_device_id', DEVICE_ID); }
@@ -691,9 +691,10 @@ function claimTab() {
     }).catch(function () { setTimeout(claimTab, 3000); });
   } catch (e) { setTimeout(claimTab, 3000); }
 }
-/* Venue options live in the Sheet's Settings tab (the "Locations" row) and the
-   active venue in Script Properties; both are re-fetched every minute, so a
-   Settings edit or a pick on any iPad updates every device on its own. */
+/* Venue options live in the Sheet's Settings tab (the "Locations" row) and are
+   re-fetched every minute, so a Settings edit reaches every iPad on its own.
+   The venue itself is per device (venues run in parallel): each iPad keeps its
+   own pick in localStorage, and the server value is only a fresh-device default. */
 function rebuildVenueOptions(names) {
   var sel = $('venueSelect');
   if (!names || !names.length) return;
@@ -710,8 +711,9 @@ function refreshVenue() {
   try {
     gsRun('getLiveConfig').then(function (res) {
       res = res || {};
-      var v = String(res.venue || '');
-      if (v && v !== VENUE) { VENUE = v; applySetupPills(); }
+      /* Venues can run in parallel, so the server never overrides this
+         device's own venue; it only supplies a default when none is set. */
+      if (!VENUE && res.venue) { VENUE = String(res.venue); applySetupPills(); }
       rebuildVenueOptions(res.locations || []);
     }).catch(function () {});
   } catch (e) {}
@@ -721,15 +723,14 @@ setInterval(refreshVenue, 60000); window.addEventListener('online', refreshVenue
   var sel = $('venueSelect');
   rebuildVenueOptions((CFG.locations || []).map(function (l) { return l.name; }));
   sel.addEventListener('change', function () {
+    /* Per-device: venues run in parallel, so a pick here changes only this
+       iPad and is remembered on it. Nothing moves the rest of the fleet. */
     var v = sel.value;
-    sel.disabled = true;
-    try {
-      gsRun('setCurrentVenue', v).then(function (res) {
-        sel.disabled = false;
-        if (res && res.venue) { VENUE = res.venue; applySetupPills(); }
-        sel.value = VENUE;
-      }).catch(function () { sel.disabled = false; sel.value = VENUE; });
-    } catch (e) { sel.disabled = false; sel.value = VENUE; }
+    if (!v) return;
+    VENUE = v;
+    lsSet('fftr_venue', v);
+    applySetupPills();
+    try { gsRun('setCurrentVenue', v).catch(function () {}); } catch (e) {}
   });
 })();
 applySetupPills(); claimTab();
